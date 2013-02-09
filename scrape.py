@@ -1,9 +1,12 @@
 import time
+import os
 import requests
 import simplejson
+from classify import categories
+csv_delimiter = '\t'
 headers = {"User-Agent": "Just playing with some stuff, love you guys :) -- /u/semarj"}
-interval = 2
 base_url = 'http://reddit.com'
+csv_headers = ('id', 'ups', 'downs', 'text')
 
 
 def traverse_comment_listing(listing):
@@ -19,19 +22,18 @@ def traverse_comment_listing(listing):
         return ret
     return _traverse_listing(listing)
 
-def traverse_post_listing(posts):
+def traverse_post_listing(subreddit_name, posts):
     for post in posts:
         data = post['data']
         try:
             comments = api_call(base_url + data['permalink'] + '.json')
         except:
-            import pdb;pdb.set_trace()
+            pass
 
-        time.sleep(interval)
         comment_list = traverse_comment_listing(comments[1])
-        with open('reddit_dump.json' , 'a') as output_file:
-            output_file.write(simplejson.dumps(comment_list))
-            output_file.write('\n')
+        with open('data/%s' % subreddit_name , 'a') as output_file:
+            for comment in comment_list:
+                output_file.write(dict_to_line(comment))
 
 
 def traverse_subreddit(name, depth=5):
@@ -47,12 +49,43 @@ def traverse_subreddit(name, depth=5):
         posts = page.get('data', {}).get('children', [])
         count += len(posts)
         current_after = page.get('data', {}).get('after', '')
-        traverse_post_listing(posts)
+        traverse_post_listing(name, posts)
 
-
-def api_call(url, params={}):
+def api_call(url, params={}, interval=2):
     response = requests.get(url, params=params, headers=headers)
     time.sleep(interval)
     return simplejson.loads(response.content)
 
+
+def explode_dump(filename):
+    subreddit = filename.split('.')[0]
+    for category in categories:
+        category_name = category[-1]
+        path = os.path.join('labled_data', subreddit, category_name)
+        if not os.path.exists(path):
+            os.makedirs(path)
+    with open(os.path.join('data', filename), 'rb') as input_file:
+        for document in input_file.readlines():
+            document = document_to_dict(document)
+            category = label(document)
+            with open(os.path.join(category, 'id_' + str(document['id'])), 'w') as doc_file:
+                doc_file.write(document['body'].encode('utf-8'))
+
+def label(document):
+    for category in categories:
+        if int(document['ups']) - int(document['downs']) > category[0]:
+            return category[-1]
+
+
+
+def document_to_dict(document):
+    ret = {}
+    for index, value in enumerate(document.split(csv_delimiter)):
+        ret[csv_headers[index]] = value
+    return ret
+
+def dict_to_line(dict):
+    return '%(id)s\t%(ups)s\t%(downs)s\t%(text)s\n' % {'id': dict['id'].encode('utf-8'),
+                                                        'ups': dict['ups'], 'downs': dict['downs'],
+                                                        'text': dict['body'].encode('utf-8')}
 
