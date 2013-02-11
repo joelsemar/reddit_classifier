@@ -1,8 +1,10 @@
 import time
 import os
+import re
 import requests
 import simplejson
 from classify import categories
+import random
 csv_delimiter = '\t'
 headers = {"User-Agent": "Just playing with some stuff, love you guys :) -- /u/semarj"}
 base_url = 'http://reddit.com'
@@ -36,12 +38,13 @@ def traverse_post_listing(subreddit_name, posts):
                 output_file.write(dict_to_line(comment))
 
 
-def traverse_subreddit(name, depth=5):
+def traverse_subreddit(name, page_depth=5):
+    os.system('rm -rf data/%s' % name)
     current_after = ''
     count = 0
     current_url = '%s/r/%s.json' % (base_url, name)
     params = {}
-    for i in range(depth):
+    for i in range(page_depth):
         if current_after and count:
            params['after'] = current_after
            params['count'] = count
@@ -57,34 +60,50 @@ def api_call(url, params={}, interval=2):
     return simplejson.loads(response.content)
 
 
-def explode_dump(filename):
+def unpack_data(filename):
     subreddit = filename.split('.')[0]
+    base_path = os.path.join('labeled_data', subreddit)
     for category in categories:
         category_name = category[-1]
-        path = os.path.join('labled_data', subreddit, category_name)
-        if not os.path.exists(path):
-            os.makedirs(path)
+        for data_set in ['training', 'test']:
+            path = os.path.join(base_path, data_set, category_name)
+            if not os.path.exists(path):
+                os.makedirs(path)
+
     with open(os.path.join('data', filename), 'rb') as input_file:
         for document in input_file.readlines():
             document = document_to_dict(document)
+            if not document:
+                continue
             category = label(document)
-            with open(os.path.join(category, 'id_' + str(document['id'])), 'w') as doc_file:
-                doc_file.write(document['body'].encode('utf-8'))
+            if random.random() > 0.90:
+                doc_type = 'test'
+            else:
+                doc_type = 'training'
+            doc_file = os.path.join(base_path, doc_type,  category,  'id_' + str(document['id']))
+
+            with open(doc_file, 'w') as doc_file:
+                doc_file.write(document['text'])
 
 def label(document):
     for category in categories:
         if int(document['ups']) - int(document['downs']) > category[0]:
             return category[-1]
+    return 'n/a'
 
 
 
 def document_to_dict(document):
     ret = {}
+    values = document.split(csv_delimiter)
+    if len(values) != len(csv_headers):
+        return None
     for index, value in enumerate(document.split(csv_delimiter)):
         ret[csv_headers[index]] = value
     return ret
 
 def dict_to_line(dict):
+    dict['body'] = re.sub('\n', ' ', dict['body'])
     return '%(id)s\t%(ups)s\t%(downs)s\t%(text)s\n' % {'id': dict['id'].encode('utf-8'),
                                                         'ups': dict['ups'], 'downs': dict['downs'],
                                                         'text': dict['body'].encode('utf-8')}
