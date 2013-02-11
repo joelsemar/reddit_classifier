@@ -1,4 +1,5 @@
 *.sw*
 *.pyc
 data/
+!funny
 labeled_data/
