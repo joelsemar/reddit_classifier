@@ -1,4 +1,4 @@
 *.sw*
 *.pyc
-data/*
+data/
 labeled_data/
