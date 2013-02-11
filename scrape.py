@@ -3,12 +3,12 @@ import os
 import re
 import requests
 import simplejson
-from classify import categories
 import random
 csv_delimiter = '\t'
-headers = {"User-Agent": "Just playing with some stuff, love you guys :) -- /u/semarj"}
+headers = {"User-Agent": "Just playing with some stuff, (see github.com/joelsemar/reddit_classifier)  love you guys :) -- /u/semarj"}
 base_url = 'http://reddit.com'
 csv_headers = ('id', 'ups', 'downs', 'text')
+burst_call_count = 30
 
 
 def traverse_comment_listing(listing):
@@ -24,13 +24,14 @@ def traverse_comment_listing(listing):
         return ret
     return _traverse_listing(listing)
 
-def traverse_post_listing(subreddit_name, posts):
+
+def traverse_post_listing(subreddit_name, posts, burst=False):
+    if burst and burst_call_count <= 0:
+        return
+
     for post in posts:
         data = post['data']
-        try:
-            comments = api_call(base_url + data['permalink'] + '.json')
-        except:
-            pass
+        comments = api_call(base_url + data['permalink'] + '.json', burst=burst)
 
         comment_list = traverse_comment_listing(comments[1])
         with open('data/%s' % subreddit_name , 'a') as output_file:
@@ -38,31 +39,50 @@ def traverse_post_listing(subreddit_name, posts):
                 output_file.write(dict_to_line(comment))
 
 
-def traverse_subreddit(name, page_depth=5):
+def traverse_subreddit(name, page_depth=5, burst=False):
     os.system('rm -rf data/%s' % name)
     current_after = ''
     count = 0
     current_url = '%s/r/%s.json' % (base_url, name)
     params = {}
+    if burst:
+        global burst_call_count
+        burst_call_count = 30
+        page_depth = 100
+
     for i in range(page_depth):
+
+        if burst and burst_call_count <= 0:
+            return
+
         if current_after and count:
            params['after'] = current_after
            params['count'] = count
-        page = api_call(current_url, params=params)
+
+        page = api_call(current_url, params=params, burst=burst)
         posts = page.get('data', {}).get('children', [])
         count += len(posts)
         current_after = page.get('data', {}).get('after', '')
-        traverse_post_listing(name, posts)
+        traverse_post_listing(name, posts, burst=burst)
 
-def api_call(url, params={}, interval=2):
+def api_call(url, params={}, burst=False):
+    global burst_call_count
     response = requests.get(url, params=params, headers=headers)
-    time.sleep(interval)
+    if not burst:
+        time.sleep(2)
+    burst_call_count -= 1
     return simplejson.loads(response.content)
 
 
 def unpack_data(filename):
+    from classify import categories
     subreddit = filename.split('.')[0]
+    if not os.path.exists(os.path.join('data', subreddit)):
+        print "I don't seem to have any data for that subreddit. Try scrape.traverse_subreddit(%s)" % subreddit
+        return False
     base_path = os.path.join('labeled_data', subreddit)
+
+    os.system('rm -rf labeled_data/%s' % subreddit)
     for category in categories:
         category_name = category[-1]
         for data_set in ['training', 'test']:
@@ -85,7 +105,10 @@ def unpack_data(filename):
             with open(doc_file, 'w') as doc_file:
                 doc_file.write(document['text'])
 
+    return True
+
 def label(document):
+    from classify import categories
     for category in categories:
         if int(document['ups']) - int(document['downs']) > category[0]:
             return category[-1]

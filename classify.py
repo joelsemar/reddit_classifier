@@ -6,23 +6,32 @@ from sklearn.feature_extraction.text import TfidfTransformer, CountVectorizer
 from sklearn import metrics
 from sklearn.datasets import load_files
 from sklearn.grid_search import GridSearchCV
+import scrape
 import numpy as np
 
 
-categories = ((100, float('inf'), '101+'),
-             (50, 99, '51_to_100'),
-             (20, 49, '21_to_50'),
-             (10, 19, '11_to_20'),
+categories = ((10, float('inf'), '11+'),
              (0, 9, '1_to_10'),
-             (-20, -1, 'neg19_to_0'),
-             (-50, -21, 'neg50_to_neg20'),
-             (float('-inf'), -50, 'Downvoted_to_shit'))
+             (float('-inf'), -0, 'Downvoted'))
 
 category_names = [cat[-1] for cat in categories]
 
+registered_classifiers = {}
 
 
-def train(subreddit, classifier='NB'):
+def predict(comment, subreddit):
+    global categories
+    classifier = registered_classifiers.get(subreddit)
+    if not classifier:
+        classifier = train(subreddit)
+    return categories[classifier.predict([comment])[0]][-1]
+
+
+def train(subreddit, classifier='SVC'):
+    if not os.path.exists('labeled_data/%s/train' % subreddit):
+        success = scrape.unpack_data(subreddit)
+        if not success:
+            return
 
     pipeline = get_pipeline(classifier)
     training_set, test_set = get_training_and_test_data(subreddit)
@@ -32,6 +41,7 @@ def train(subreddit, classifier='NB'):
     print "Accuracy: %s" % np.mean(predicted == test_set.target)
     print metrics.classification_report(test_set.target, predicted, target_names=test_set.target_names)
     print metrics.confusion_matrix(test_set.target, predicted)
+    registered_classifiers[subreddit] = pipeline
     return pipeline
 
 def gridsearch(subreddit, classifier="NB"):
